@@ -13,6 +13,7 @@ import { toast } from '../ui/Toast';
 import {
   buildPrompt, insertBlocksBelow, replaceBlockWith, replaceSelectionIn,
 } from './aiUtil';
+import './ai.css';
 
 type Stage = 'menu' | 'submenu' | 'streaming' | 'result';
 

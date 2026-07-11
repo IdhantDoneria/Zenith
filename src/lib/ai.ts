@@ -2,12 +2,10 @@
 //
 // The workspace owner configures GEMINI_API_KEY once, on the server. Every
 // visitor's requests are streamed through /api/ai — no key ever reaches the
-// browser, and there is nothing for a user to configure. streamCompletion()
-// streams tokens via onToken(fullTextSoFar) and resolves with the final text.
-// Aborting the signal resolves with whatever was streamed so far (it never
-// throws on user-stop). Failures are mapped to friendly AIError messages.
-
-import { useStore } from './store';
+// browser. streamCompletion() streams tokens via onToken(fullTextSoFar) and
+// resolves with the final text. Aborting the signal resolves with whatever was
+// streamed so far (it never throws on user-stop). Failures are mapped to
+// friendly AIError messages.
 
 export interface StreamOptions {
   system?: string;
@@ -23,18 +21,7 @@ export class AIError extends Error {
   notConfigured?: boolean;
 }
 
-export const GEMINI_MODELS: readonly string[] = [
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
-];
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
-
-export function aiModelLabel(): string {
-  const s = useStore.getState().settings;
-  return (s.aiModel ?? '').trim() || DEFAULT_GEMINI_MODEL;
-}
+const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 // ─── error mapping ───────────────────────────────────────────────────────────
 
@@ -48,7 +35,7 @@ function friendly(status: number, detail = ''): AIError {
     return new AIError('Zenith AI is getting a lot of requests right now — try again in a minute.');
   }
   if (status === 404) {
-    return new AIError('Model not found — try a different model in Settings → Zenith AI.');
+    return new AIError('Model not found — try again shortly.');
   }
   if (status >= 500) {
     return new AIError('The AI service is having a moment — try again shortly.');
@@ -161,37 +148,15 @@ async function streamServer(opts: StreamOptions, model: string, acc: { text: str
  * the partial text instead of throwing. Other failures throw friendly AIErrors.
  */
 export async function streamCompletion(opts: StreamOptions): Promise<string> {
-  const model = aiModelLabel();
   const acc = { text: '' };
   try {
-    await streamServer(opts, model, acc);
+    await streamServer(opts, DEFAULT_MODEL, acc);
   } catch (err) {
     if (opts.signal.aborted) return acc.text; // user pressed Stop — keep partial
     throw toFriendly(err);
   }
   if (!opts.signal.aborted && !acc.text.trim()) {
-    throw new AIError('The model returned an empty response — try again, or switch models.');
+    throw new AIError('The model returned an empty response — try again.');
   }
   return acc.text;
-}
-
-/** Fire a tiny prompt to verify the server's AI is reachable. 15s timeout. Never throws. */
-export async function testConnection(): Promise<{ ok: boolean; message: string }> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15_000);
-  try {
-    const text = await streamCompletion({
-      prompt: 'Reply with exactly one word: ready',
-      signal: ctrl.signal,
-      onToken: () => {},
-    });
-    if (!text.trim()) {
-      return { ok: false, message: 'Timed out after 15s — try again in a moment.' };
-    }
-    return { ok: true, message: `Connected — ${aiModelLabel()} responded.` };
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : 'Connection failed.' };
-  } finally {
-    clearTimeout(timer);
-  }
 }
