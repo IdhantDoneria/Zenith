@@ -81,7 +81,7 @@ async function initiateConnection(userId, toolkitSlug, callbackUrl) {
   const cfgId = authConfigId(toolkitSlug);
   if (!cfgId) throw new Error(`${toolkitSlug} is not configured by the workspace owner yet`);
   const client = await getClient();
-  const reqResult = await client.connectedAccounts.initiate(userId, cfgId, callbackUrl ? { callbackUrl } : undefined);
+  const reqResult = await client.connectedAccounts.link(userId, cfgId, callbackUrl ? { callbackUrl } : undefined);
   return { redirectUrl: reqResult.redirectUrl || reqResult.redirect_url };
 }
 
