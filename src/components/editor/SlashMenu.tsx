@@ -159,19 +159,18 @@ export function SlashMenu({ block, anchor, onClose }: {
 
   let lastGroup = '';
   return (
-    <Popover anchor={anchor} onClose={onClose} className="slash-menu">
+    <Popover anchor={anchor} onClose={onClose} className="slash-menu" autoFocus closeOnEsc={false}>
       <div style={{ padding: '10px 10px 0' }}>
         <input
           className="text-input"
           placeholder="Filter… (e.g. heading, board, ai)"
           value={q}
-          autoFocus
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setHl((h) => Math.min(h + 1, items.length - 1)); }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)); }
             else if (e.key === 'Enter') { e.preventDefault(); if (items[hl]) run(items[hl]); }
-            else if (e.key === 'Escape') { onClose(); }
+            else if (e.key === 'Escape') { onClose(); ctx.focusBlock(block.id, 'end'); }
             e.stopPropagation();
           }}
         />

@@ -30,18 +30,24 @@ export function PageView({ pageId, inPeek = false }: { pageId: string; inPeek?: 
   const readOnly = !!page?.props.locked;
 
   const focusBlock = useCallback((id: string, at: 'start' | 'end' | number = 'start') => {
-    let tries = 0;
-    const attempt = () => {
-      const el = refs.current.get(id);
-      if (el) {
-        if (at === 'start') placeCaretAtStart(el);
-        else if (at === 'end') placeCaretAtEnd(el);
-        else placeCaretAtTextOffset(el, at);
-        return;
-      }
-      if (++tries < 24) requestAnimationFrame(attempt);
+    const place = (el: HTMLDivElement) => {
+      if (at === 'start') placeCaretAtStart(el);
+      else if (at === 'end') placeCaretAtEnd(el);
+      else placeCaretAtTextOffset(el, at);
     };
-    requestAnimationFrame(attempt);
+    // synchronous first, so keystrokes right after Enter land in the new block
+    // (its element already exists when the caller used flushSync)
+    const first = refs.current.get(id);
+    if (first) place(first);
+    let tries = 0;
+    const retry = () => {
+      const el = refs.current.get(id);
+      // re-place only if the element appeared late or was remounted since the
+      // sync attempt (block type changes swap the contenteditable node)
+      if (el && el !== first) return place(el);
+      if (!el && ++tries < 24) requestAnimationFrame(retry);
+    };
+    requestAnimationFrame(retry);
   }, []);
 
   const flatIds = useCallback(() => {
@@ -145,6 +151,15 @@ export function PageView({ pageId, inPeek = false }: { pageId: string; inPeek?: 
         onDragLeave={(e) => {
           if (!(e.relatedTarget as HTMLElement | null)?.closest?.('.page-view')) setDropTarget(null);
         }}
+        onClick={(e) => {
+          // clicking the blank area below the content (the page-view's own
+          // padding) puts the caret at the end of the page, like Notion
+          if (readOnly || isDb || e.target !== e.currentTarget) return;
+          const blocks = getChildren(pageId, null);
+          const last = blocks[blocks.length - 1];
+          if (last && last.type === 'paragraph' && !last.html) focusBlock(last.id, 'start');
+          else focusBlock(createBlock(pageId, {}), 'start');
+        }}
       >
         {cover && (
           <div className="page-cover" style={coverStyle}>
@@ -197,6 +212,7 @@ export function PageView({ pageId, inPeek = false }: { pageId: string; inPeek?: 
               pageId={pageId}
               title={page.title}
               readOnly={readOnly}
+              autoFocus={!readOnly && !page.title && pageContentEmpty(pageId)}
               placeholder={isDb ? 'Untitled database' : 'Untitled'}
               onDown={() => {
                 const first = getChildren(pageId, null)[0];
@@ -249,8 +265,16 @@ export function PageView({ pageId, inPeek = false }: { pageId: string; inPeek?: 
   );
 }
 
-function TitleEditor({ pageId, title, readOnly, placeholder, onDown }: {
-  pageId: string; title: string; readOnly: boolean; placeholder: string; onDown: () => void;
+/** no blocks yet, or just the single empty starter paragraph createPage seeds */
+function pageContentEmpty(pageId: string): boolean {
+  const blocks = getChildren(pageId, null);
+  if (blocks.length === 0) return true;
+  return blocks.length === 1 && blocks[0].type === 'paragraph' && !blocks[0].html
+    && getChildren(pageId, blocks[0].id).length === 0;
+}
+
+function TitleEditor({ pageId, title, readOnly, placeholder, onDown, autoFocus = false }: {
+  pageId: string; title: string; readOnly: boolean; placeholder: string; onDown: () => void; autoFocus?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -258,6 +282,12 @@ function TitleEditor({ pageId, title, readOnly, placeholder, onDown }: {
     if (!el) return;
     if (document.activeElement !== el && el.textContent !== title) el.textContent = title;
   }, [title, pageId]);
+  useEffect(() => {
+    // fresh untitled page (New page / new database row): put the caret in the
+    // title so the user can just start typing
+    if (autoFocus) ref.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId]);
   return (
     <div
       ref={ref}
