@@ -66,8 +66,10 @@ export function Popover({
   }, [onClose, closeOnEsc]);
 
   useEffect(() => {
-    if (autoFocus) ref.current?.querySelector<HTMLElement>('input,textarea,[contenteditable]')?.focus();
-  }, [autoFocus]);
+    // wait for positioning: focus() is a no-op while the popover is still
+    // visibility:hidden, which also breaks React's autoFocus on children
+    if (autoFocus && pos) ref.current?.querySelector<HTMLElement>('input,textarea,[contenteditable]')?.focus();
+  }, [autoFocus, pos]);
 
   return createPortal(
     <div

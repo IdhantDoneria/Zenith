@@ -38,6 +38,17 @@ export default function App() {
   const [booted, setBooted] = useState(false);
   const [session, setSession] = useState<Session | null>(currentSession());
 
+  // Escape closes the row/page peek panel (popovers and modals capture Escape
+  // first and stop propagation, so this only fires when nothing else is open)
+  useEffect(() => {
+    if (!peekPageId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') openPeek(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [peekPageId]);
+
   // auth session (gates the workspace)
   useEffect(() => onAuth(setSession), []);
 

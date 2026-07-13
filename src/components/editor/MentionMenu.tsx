@@ -56,10 +56,10 @@ export function MentionMenu({ anchor, parentPageId, onChoose }: {
   });
 
   return (
-    <Popover anchor={anchor} onClose={() => onChoose({ type: 'dismiss' })} width={300}>
+    <Popover anchor={anchor} onClose={() => onChoose({ type: 'dismiss' })} width={300} autoFocus closeOnEsc={false}>
       <div style={{ padding: '8px 8px 0' }}>
         <input
-          className="text-input" autoFocus placeholder="Mention a page or date…"
+          className="text-input" placeholder="Mention a page or date…"
           value={q} onChange={(e) => { setQ(e.target.value); setHl(0); }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setHl((h) => Math.min(h + 1, rows.length - 1)); }

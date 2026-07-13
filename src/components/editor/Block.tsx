@@ -1,5 +1,6 @@
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { type ClipboardEvent, type KeyboardEvent, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   deleteBeforeCaret, isCaretAtEnd, isCaretAtStart, splitAtCaret, getCaretRect, textBeforeCaret,
 } from '../../lib/caret';
@@ -150,7 +151,8 @@ export function Block({ block, listIndex = 1, depth = 0 }: { block: BlockDoc; li
       // toggle expanded: new child on top
       if ((b.type === 'toggle' || b.props.toggleable) && !collapsed && isCaretAtEnd(el)) {
         const first = getChildren(b.pageId, b.id)[0];
-        const nid = createBlock(ctx.pageId, { parentId: b.id, before: first?.id ?? null });
+        let nid = '';
+        flushSync(() => { nid = createBlock(ctx.pageId, { parentId: b.id, before: first?.id ?? null }); });
         ctx.focusBlock(nid, 'start');
         return;
       }
@@ -163,10 +165,15 @@ export function Block({ block, listIndex = 1, depth = 0 }: { block: BlockDoc; li
         ctx.focusBlock(b.id, 'start');
         return;
       }
-      updateBlock(b.id, { html: before });
-      const nid = createBlock(ctx.pageId, {
-        parentId: b.parentId, after: b.id, type: newType, html: after,
-        props: newType === 'todo' ? { checked: false } : {},
+      // flushSync so the new block's element exists before the next keystroke —
+      // otherwise fast typing lands characters in this block instead
+      let nid = '';
+      flushSync(() => {
+        updateBlock(b.id, { html: before });
+        nid = createBlock(ctx.pageId, {
+          parentId: b.parentId, after: b.id, type: newType, html: after,
+          props: newType === 'todo' ? { checked: false } : {},
+        });
       });
       ctx.focusBlock(nid, 'start');
       return;

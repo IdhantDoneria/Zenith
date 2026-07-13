@@ -1,6 +1,7 @@
 import { History, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { listSnapshots, restoreSnapshot, saveSnapshot, setHistoryFor, useStore } from '../../lib/store';
+import { compareOrder } from '../../lib/order';
 import type { Snapshot } from '../../lib/types';
 import { fmtDate } from '../editor/editorUtils';
 import { Modal } from '../ui/Modal';
@@ -26,8 +27,27 @@ export function HistoryPanel() {
   const preview = (() => {
     if (!sel) return null;
     try {
-      const data = JSON.parse(sel.data) as { blocks: Array<{ type: string; html: string }> };
-      return data.blocks.slice(0, 14).map((b, i) => {
+      const data = JSON.parse(sel.data) as {
+        blocks: Array<{ id: string; parentId: string | null; order: string; type: string; html: string }>;
+      };
+      // snapshots store blocks in map-iteration order; walk the tree to
+      // render the preview in document order
+      const byParent = new Map<string | null, typeof data.blocks>();
+      for (const b of data.blocks) {
+        const list = byParent.get(b.parentId ?? null) ?? [];
+        list.push(b);
+        byParent.set(b.parentId ?? null, list);
+      }
+      const ordered: typeof data.blocks = [];
+      const walk = (parentId: string | null) => {
+        for (const b of (byParent.get(parentId) ?? []).sort(compareOrder)) {
+          ordered.push(b);
+          walk(b.id);
+        }
+      };
+      walk(null);
+      const blocks = ordered.length ? ordered : data.blocks;
+      return blocks.slice(0, 14).map((b, i) => {
         const el = document.createElement('div');
         el.innerHTML = b.html;
         const text = el.textContent || (b.type === 'divider' ? '———' : `[${b.type}]`);
