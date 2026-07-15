@@ -20,7 +20,7 @@ the built-in local-first accounts — so the site keeps working at every stage.
 | `/api/auth/logout` | POST | Clear the session cookie |
 | `/api/unsubscribe` | GET | One-click unsubscribe from campaigns (`?e=&t=`) |
 | `/api/cron/daily-digest` | GET | **Cron only** — emails the daily campaign to all subscribed users |
-| `/api/ai` | POST | Zenith AI — proxies Gemini with the workspace's own key; streams SSE, or runs a Composio tool-calling round with `{useTools:true}` |
+| `/api/ai` | POST | Zenith AI — proxies NVIDIA NIM (`z-ai/glm-5.2`) with the workspace's own key; streams SSE, or runs a Composio tool-calling round with `{useTools:true}` |
 | `/api/composio?action=…` | GET/POST | Connected-apps: `config`, `connections`, `connect`, `disconnect`, `tools`, `execute` — see [`COMPOSIO.md`](./COMPOSIO.md) |
 
 ## Security
@@ -75,18 +75,20 @@ Runs every day at 14:00 UTC. Optionally lock the endpoint:
 CRON_SECRET = <random string>     # Vercel sends it as the cron Authorization header
 ```
 
-### 5. Zenith AI — Google Gemini (required for AI features)
+### 5. Zenith AI — NVIDIA NIM (required for AI features)
 Zenith AI has no "bring your own key" option — the app calls `/api/ai`, which
-proxies Google's Gemini API using **your** key. Visitors never see or need one.
+proxies NVIDIA's OpenAI-compatible NIM API (model `z-ai/glm-5.2`) using **your**
+key. Visitors never see or need one.
 ```
-GEMINI_API_KEY = AIza…
+NVIDIA_API_KEY = nvapi-…
 ```
-Get a free key at **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**
-(Google AI Studio's free tier is generous and needs no credit card). Until this
-is set, `/api/ai` returns a clear "not configured" message and the AI menu
-surfaces it inline instead of failing silently (`/api/health` → `"ai":false`).
-The endpoint is dam-guarded per signed-in user (and per IP for guests) so one
-visitor can't exhaust your quota.
+Get a key at **[build.nvidia.com](https://build.nvidia.com)** (NVIDIA's API
+catalog — create a free account and generate an API key for any hosted model,
+this proxy is wired to `z-ai/glm-5.2`). Until this is set, `/api/ai` returns a
+clear "not configured" message and the AI menu surfaces it inline instead of
+failing silently (`/api/health` → `"ai":false`). The endpoint is dam-guarded
+per signed-in user (and per IP for guests) so one visitor can't exhaust your
+quota.
 
 ### 6. Connected apps — Composio (optional; lets AI act on Gmail, Calendar, Slack, etc.)
 ```
@@ -112,4 +114,11 @@ Every email carries a working **unsubscribe** link.
 ```bash
 curl https://<your-deployment>/api/health
 # → {"ok":true,"auth":true,"store":"persistent","email":true,"ai":true,"composio":true,...}
+```
+
+To smoke-test the AI proxy directly once `NVIDIA_API_KEY` is set:
+```bash
+curl -N -X POST https://<your-deployment>/api/ai \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Say hello in five words."}'
 ```

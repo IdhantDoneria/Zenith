@@ -14,7 +14,7 @@ one beautifully minimal workspace that compounds your output.
 Zenith is a luxury-grade, Notion-class personal workspace. It is **local-first**
 (your data lives in your browser's IndexedDB, instantly responsive, fully offline),
 with optional **Google sign-in cloud sync** to your own Firebase project, an
-**AI assistant** powered by Google Gemini, and optional **connected apps** (Gmail,
+**AI assistant** powered by NVIDIA NIM (`z-ai/glm-5.2`), and optional **connected apps** (Gmail,
 Calendar, Slack, Linear, Notion, GitHub, Todoist) via Composio so the AI can act
 on real tasks, not just write text.
 
@@ -26,7 +26,7 @@ on real tasks, not just write text.
 | **Slash menu** | Type `/` for everything; markdown shortcuts as you type (`#`, `-`, `[]`, `>`, ` ``` `, `---`, `**bold**`, `` `code` ``…) |
 | **Databases** | Full collections with **Table · Board · Gallery · List · Calendar · Timeline** views, filters (and/or), multi-sorts, grouping, hidden properties, inline or full-page, linked views |
 | **Properties** | Title, text, number (formats), select, multi-select, status, date, checkbox, URL, email, phone, **formulas**, **relations**, created/edited time |
-| **Zenith AI** | Continue writing, summarize, improve, fix grammar, translate, change tone, brainstorm, outline, action items, custom prompts — streaming, powered by the workspace's own Gemini key (server-side, nothing for visitors to configure) |
+| **Zenith AI** | Continue writing, summarize, improve, fix grammar, translate, change tone, brainstorm, outline, action items, custom prompts — streaming, powered by the workspace's own NVIDIA NIM key (`z-ai/glm-5.2`, server-side, nothing for visitors to configure) |
 | **Connected apps** | Composio-backed: AI can look things up and take action in Gmail, Google Calendar, Slack, Linear, Notion, GitHub and Todoist — reads run immediately, anything that changes something outside Zenith asks for confirmation first |
 | **Organization** | Infinite page nesting, drag-and-drop everywhere (blocks, columns, sidebar tree), favorites, full-text search (`⌘K`), templates gallery, trash with restore |
 | **Pages** | Emoji icons, gradient/image covers, serif & mono fonts, small text, full width, page lock, word count |
@@ -47,9 +47,9 @@ npm run build    # type-checks + builds to dist/
 ## 🤖 Zenith AI — one key, set once, works for everyone
 
 There's no "bring your own key" — the app calls a server-side proxy
-(`/api/ai`) using **your** Gemini key, so every visitor just gets a working AI
-assistant with nothing to configure. Deploying your own copy? Set
-`GEMINI_API_KEY` — see [`BACKEND.md`](./BACKEND.md).
+(`/api/ai`) using **your** NVIDIA NIM key (model `z-ai/glm-5.2`), so every
+visitor just gets a working AI assistant with nothing to configure. Deploying
+your own copy? Set `NVIDIA_API_KEY` — see [`BACKEND.md`](./BACKEND.md).
 
 ## 🔌 Connected apps (optional, Composio)
 

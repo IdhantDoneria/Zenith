@@ -1,6 +1,6 @@
-// ─── Zenith AI — thin client for the server-side Gemini proxy ────────────────
+// ─── Zenith AI — thin client for the server-side NVIDIA NIM proxy ───────────
 //
-// The workspace owner configures GEMINI_API_KEY once, on the server. Every
+// The workspace owner configures NVIDIA_API_KEY once, on the server. Every
 // visitor's requests are streamed through /api/ai — no key ever reaches the
 // browser. streamCompletion() streams tokens via onToken(fullTextSoFar) and
 // resolves with the final text. Aborting the signal resolves with whatever was
@@ -21,7 +21,7 @@ export class AIError extends Error {
   notConfigured?: boolean;
 }
 
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'z-ai/glm-5.2';
 
 // ─── error mapping ───────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ function friendly(status: number, detail = ''): AIError {
     return err;
   }
   if (status === 429) {
-    return new AIError('Zenith AI is getting a lot of requests right now — try again in a minute.');
+    return new AIError('Zenith AI is handling a burst of requests — pause a moment and try again.');
   }
   if (status === 404) {
     return new AIError('Model not found — try again shortly.');
@@ -67,7 +67,7 @@ function toFriendly(err: unknown): AIError {
   return new AIError(err instanceof Error ? `AI request failed — ${err.message}` : 'AI request failed.');
 }
 
-// ─── SSE reader (`data: {json}` lines, proxied straight through from Gemini) ─
+// ─── SSE reader (`data: {json}` lines, proxied straight through from NVIDIA) ─
 
 async function readSSE(res: Response, onData: (json: any) => void): Promise<void> {
   const handleLine = (raw: string) => {
@@ -129,13 +129,10 @@ async function streamServer(opts: StreamOptions, model: string, acc: { text: str
 
   await readSSE(res, (json) => {
     if (json?.error) throw friendly(Number(json.error.code) || 0, String(json.error.message ?? ''));
-    const parts = json?.candidates?.[0]?.content?.parts;
-    if (Array.isArray(parts)) {
-      let grew = false;
-      for (const p of parts) {
-        if (typeof p?.text === 'string' && p.text) { acc.text += p.text; grew = true; }
-      }
-      if (grew) opts.onToken(acc.text);
+    const delta = json?.choices?.[0]?.delta?.content;
+    if (typeof delta === 'string' && delta) {
+      acc.text += delta;
+      opts.onToken(acc.text);
     }
   });
 }
