@@ -138,13 +138,18 @@ module.exports = async (req, res) => {
     return sendJson(res, 503, { error: 'not_configured', message: 'Zenith AI is not configured for this workspace yet.' });
   }
 
-  // Signed-in users get a roomier hourly bucket than anonymous visitors; either
-  // way the workspace owner's shared key is protected from a single flood.
+  // Rate-limit budget tuned for an *interactive* assistant: a work session can
+  // fire many completions in a few minutes, so the bucket refills per-minute
+  // (not per-hour). Signed-in users get a roomier bucket than anonymous
+  // visitors; either way the owner's shared key is still protected from a
+  // genuine flood — a runaway client is throttled to the sustained rate, and an
+  // exhausted caller only waits a couple of seconds (Retry-After) rather than
+  // minutes.
   const sess = verifySession(parseCookies(req).zenith_session);
   const bucketKey = sess ? `ai:user:${sess.email}` : `ai:ip:${clientIp(req)}`;
   const damOpts = sess
-    ? { capacity: 40, refillPerSec: 40 / 3600 }
-    : { capacity: 12, refillPerSec: 12 / 3600 };
+    ? { capacity: 60, refillPerSec: 60 / 60 }   // signed-in: 60 burst, ~60/min sustained
+    : { capacity: 20, refillPerSec: 20 / 60 };  // guest:     20 burst, ~20/min sustained
   if (!(await guard(req, res, bucketKey, damOpts))) return;
 
   const { system, prompt, model, useTools } = await readBody(req);

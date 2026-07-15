@@ -32,7 +32,7 @@ function friendly(status: number, detail = ''): AIError {
     return err;
   }
   if (status === 429) {
-    return new AIError('Zenith AI is getting a lot of requests right now — try again in a minute.');
+    return new AIError('Zenith AI is handling a burst of requests — pause a moment and try again.');
   }
   if (status === 404) {
     return new AIError('Model not found — try again shortly.');
