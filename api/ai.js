@@ -1,23 +1,24 @@
-// POST /api/ai — server-side Gemini proxy. The workspace owner's API key lives
-// only here (GEMINI_API_KEY); every visitor's request is proxied through this
-// endpoint. Plain requests stream SSE straight through from Gemini unchanged.
-// Requests with `useTools: true` instead run a short, bounded function-calling
-// round against the user's connected Composio apps: read-only actions execute
-// immediately, anything that mutates something outside Zenith is returned as a
-// `proposedAction` for the client to confirm before /api/composio?action=execute
-// actually runs it. Dam-guarded so a shared key can't be drained by one caller.
+// POST /api/ai — server-side proxy for NVIDIA's OpenAI-compatible NIM API
+// (model: z-ai/glm-5.2). The workspace owner's API key lives only here
+// (NVIDIA_API_KEY); every visitor's request is proxied through this
+// endpoint. Plain requests stream the chat-completion SSE straight through
+// unchanged. Requests with `useTools: true` instead run a short, bounded
+// function-calling round against the user's connected Composio apps:
+// read-only actions execute immediately, anything that mutates something
+// outside Zenith is returned as a `proposedAction` for the client to confirm
+// before /api/composio?action=execute actually runs it. Dam-guarded so a
+// shared key can't be drained by one caller.
 const { readBody, parseCookies, clientIp } = require('./_lib/respond');
 const { verifySession } = require('./_lib/crypto');
 const { guard } = require('./_lib/dam');
 const { composioEnabled, isMutating, listUserTools, executeTool, listConnections } = require('./_lib/composio');
 
-const DEFAULT_MODEL = 'gemini-2.0-flash';
-const ALLOWED_MODELS = new Set([
-  'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-pro',
-]);
+const API_BASE = 'https://integrate.api.nvidia.com/v1';
+const DEFAULT_MODEL = 'z-ai/glm-5.2';
+const ALLOWED_MODELS = new Set([DEFAULT_MODEL]);
 
-function geminiKey() {
-  return process.env.GEMINI_API_KEY || '';
+function aiKey() {
+  return process.env.NVIDIA_API_KEY || '';
 }
 
 function sendJson(res, status, body) {
@@ -26,35 +27,44 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function genUrl(model, key, verb, extraQuery) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}` +
-    `:${verb}?${extraQuery ? extraQuery + '&' : ''}key=${encodeURIComponent(key)}`;
+function toMessages(system, prompt) {
+  const messages = [];
+  if (system && typeof system === 'string') messages.push({ role: 'system', content: system });
+  messages.push({ role: 'user', content: prompt });
+  return messages;
 }
 
-async function callGemini(model, key, body) {
-  const res = await fetch(genUrl(model, key, 'generateContent'), {
+function toOpenAiTools(tools) {
+  return tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+}
+
+async function callChat(key, body) {
+  const res = await fetch(`${API_BASE}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
   });
   const j = await res.json().catch(() => null);
   if (!res.ok) {
-    const err = new Error((j && j.error && j.error.message) || `HTTP ${res.status}`);
+    const err = new Error((j && j.error && (j.error.message || j.error)) || `HTTP ${res.status}`);
     err.status = res.status;
     throw err;
   }
   return j;
 }
 
-function firstFunctionCall(resp) {
-  const parts = (resp && resp.candidates && resp.candidates[0] && resp.candidates[0].content && resp.candidates[0].content.parts) || [];
-  for (const p of parts) if (p.functionCall) return p.functionCall;
-  return null;
+function firstToolCall(resp) {
+  const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
+  const call = msg && Array.isArray(msg.tool_calls) && msg.tool_calls[0];
+  if (!call || !call.function) return null;
+  let args = {};
+  try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* malformed args from model */ }
+  return { id: call.id, name: call.function.name, args };
 }
 
 function textOf(resp) {
-  const parts = (resp && resp.candidates && resp.candidates[0] && resp.candidates[0].content && resp.candidates[0].content.parts) || [];
-  return parts.map((p) => p.text || '').join('');
+  const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
+  return (msg && msg.content) || '';
 }
 
 function humanizeTool(name) {
@@ -78,19 +88,18 @@ async function handleWithTools(sess, { system, prompt, model }, res) {
     return sendJson(res, 200, { text: "You haven't connected any apps yet — open Settings → Connections to link Gmail, Calendar, Slack and more." });
   }
 
-  const key = geminiKey();
-  const base = { generationConfig: { temperature: 0.4 }, tools: [{ functionDeclarations: tools }] };
-  if (system) base.systemInstruction = { parts: [{ text: system }] };
-  const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+  const key = aiKey();
+  const base = { model, temperature: 0.4, top_p: 1, max_tokens: 4096, tools: toOpenAiTools(tools) };
+  const messages = toMessages(system, prompt);
 
   let resp;
   try {
-    resp = await callGemini(model, key, { ...base, contents });
+    resp = await callChat(key, { ...base, messages });
   } catch (e) {
     return sendJson(res, e.status || 502, { error: 'upstream', message: e.message });
   }
 
-  const call = firstFunctionCall(resp);
+  const call = firstToolCall(resp);
   if (!call) {
     return sendJson(res, 200, { text: textOf(resp) || "I couldn't find anything actionable there — try rephrasing." });
   }
@@ -106,14 +115,14 @@ async function handleWithTools(sess, { system, prompt, model }, res) {
     return sendJson(res, 502, { error: 'composio', message: e.message || 'The connected app did not respond.' });
   }
 
-  const contents2 = [
-    ...contents,
-    { role: 'model', parts: [{ functionCall: call }] },
-    { role: 'function', parts: [{ functionResponse: { name: call.name, response: { result } } }] },
+  const messages2 = [
+    ...messages,
+    { role: 'assistant', content: null, tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args || {}) } }] },
+    { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) },
   ];
   let final;
   try {
-    final = await callGemini(model, key, { ...base, contents: contents2 });
+    final = await callChat(key, { ...base, messages: messages2 });
   } catch (e) {
     return sendJson(res, e.status || 502, { error: 'upstream', message: e.message });
   }
@@ -124,7 +133,7 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'method_not_allowed' });
 
-  const key = geminiKey();
+  const key = aiKey();
   if (!key) {
     return sendJson(res, 503, { error: 'not_configured', message: 'Zenith AI is not configured for this workspace yet.' });
   }
@@ -146,18 +155,22 @@ module.exports = async (req, res) => {
 
   if (useTools) return handleWithTools(sess, { system, prompt, model: useModel }, res);
 
-  // ── plain path: stream Gemini's SSE straight through ──
+  // ── plain path: stream the chat completion's SSE straight through ──
   const body = {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.7 },
+    model: useModel,
+    messages: toMessages(system, prompt),
+    temperature: 1,
+    top_p: 1,
+    max_tokens: 16384,
+    seed: 42,
+    stream: true,
   };
-  if (system && typeof system === 'string') body.systemInstruction = { parts: [{ text: system }] };
 
   let upstream;
   try {
-    upstream = await fetch(genUrl(useModel, key, 'streamGenerateContent', 'alt=sse'), {
+    upstream = await fetch(`${API_BASE}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(body),
     });
   } catch {
